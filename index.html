@@ -130,7 +130,7 @@ hr.div{border:none;border-top:1px solid #e8e8e8;margin:6px 0}
         <button class="btn" style="margin-top:6px" onclick="loadExampleVid()">▶ Load example video</button>
         <div class="tog-row" style="margin-top:7px">
           <span style="font-size:11px"><span class="live-dot"></span>Live (while playing)</span>
-          <label class="tog"><input type="checkbox" id="live" onchange="onLiveToggle()"><span class="ts"></span></label>
+          <label class="tog"><input type="checkbox" id="live" checked onchange="onLiveToggle()"><span class="ts"></span></label>
         </div>
         <button class="btn" style="margin-top:2px" onclick="processFrame()">Process current frame</button>
       </div>
@@ -557,7 +557,7 @@ function loadVid(e) {
   const url=URL.createObjectURL(f);
   const v=document.getElementById('vp');
   v.src=url; v.style.display='block';
-  v.addEventListener('loadeddata',()=>{ src=v; offC=null; render(); },{once:true});
+  v.addEventListener('loadeddata',()=>{ src=v; offC=null; render(); if(document.getElementById('live').checked) startLive(); },{once:true});
   v.addEventListener('seeked',()=>{ render(); }); // re-render on manual scrub
 }
 
@@ -587,7 +587,7 @@ async function loadExampleVid() {
     const v = document.getElementById('vp');
     v.src = './media/loop.mp4';
     v.style.display = 'block';
-    v.addEventListener('loadeddata', () => { src = v; offC = null; applyState(DEFAULT_PRESET); render(); }, {once:true});
+    v.addEventListener('loadeddata', () => { src = v; offC = null; applyState(DEFAULT_PRESET); render(); if(document.getElementById('live').checked) startLive(); }, {once:true});
   } catch(e) { /* example media not available on this host — silent */ }
 }
 
@@ -863,7 +863,7 @@ function tog(h){
 LAYERS.forEach(l=>buildLayerUI(l));
 refreshPresetList();
 resize(800,1100);
-loadExampleVid();
+loadExampleImg();
 </script>
 </body>
 </html>
