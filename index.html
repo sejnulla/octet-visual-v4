@@ -221,6 +221,7 @@ hr.div{border:none;border-top:1px solid #e8e8e8;margin:6px 0}
 const BUILT_IN_PRESETS = [
   {
     name: 'Botanical',
+    exampleImg: './media/flower.jpg',
     state: {
       td:'18', ts:'55', tm:'130', th:'210', ref:'0', bgc:'#000000',
       layers:[
@@ -548,7 +549,7 @@ function loadVid(e) {
 
 function processFrame() { if(src?.tagName==='VIDEO') render(); }
 
-async function loadExampleImg() {
+async function loadExampleImg(stateOverride) {
   try {
     const resp = await fetch('./media/flower.jpg');
     if (!resp.ok) throw new Error('not found');
@@ -558,7 +559,7 @@ async function loadExampleImg() {
     img.onload = () => {
       stopLive(); src = img; offC = null;
       const t = document.getElementById('ith'); t.src = url; t.style.display = 'block';
-      applyState(DEFAULT_PRESET); render();
+      applyState(stateOverride || DEFAULT_PRESET); render();
     };
     img.src = url;
     switchInput('img');
@@ -693,7 +694,13 @@ function loadPreset() {
   const val=sel.value; if(!val) return;
   if (val.startsWith('b:')) {
     const idx=+val.slice(2);
-    if (BUILT_IN_PRESETS[idx]) applyState(BUILT_IN_PRESETS[idx].state);
+    const preset=BUILT_IN_PRESETS[idx]; if(!preset) return;
+    if (!src && preset.exampleImg) {
+      // No image loaded — load the example media and apply state together
+      loadExampleImg(preset.state);
+    } else {
+      applyState(preset.state);
+    }
   } else {
     const idx=+val.slice(2);
     const p=getPresets();
