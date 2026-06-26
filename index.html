@@ -1200,6 +1200,80 @@ function renderLook(ctx, idx, aes, px, allowTrail){
   });
 }
 
+/* ══ True cell morph ══════════════════════════════════════════════
+   Renders a single field of cells on a regular grid whose spacing,
+   size, density, colour and threshold band all interpolate from the
+   "from" section to the "to" section. Cell identity is the (col,row)
+   index, so as the spacing morphs each cell glides/resizes in place —
+   a real morph, no dissolve, no boiling. The render *style* (gradient
+   vs solid) flips at the midpoint; everything else is continuous.
+   Used for both the settled look (from===to, p=0) and transitions.   */
+const mix  = (a, b, t) => a + (b - a) * t;
+const mix3 = (a, b, t) => [ a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t ];
+function hash01(x, y, s){
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 2246822519)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function cellFill(ctx, mode, c1, c2, bri, ga, x, y, sz){
+  if (mode === 'solid') { ctx.fillStyle = rgbStr(c1); }
+  else if (mode === 'gradient-cell') {
+    const g = ctx.createLinearGradient(x, y, x+sz, y+sz);
+    g.addColorStop(0, rgbStr(c1)); g.addColorStop(1, rgbStr(c2)); ctx.fillStyle = g;
+  } else if (mode === 'solid-brightness') {
+    const t = bri/255;
+    ctx.fillStyle = `rgb(${(c1[0]+(c2[0]-c1[0])*t)|0},${(c1[1]+(c2[1]-c1[1])*t)|0},${(c1[2]+(c2[2]-c1[2])*t)|0})`;
+  } else { // random-gradient
+    const mx = x+sz/2, my = y+sz/2, cos = Math.cos(ga)*sz, sin = Math.sin(ga)*sz;
+    const g = ctx.createLinearGradient(mx-cos/2, my-sin/2, mx+cos/2, my+sin/2);
+    g.addColorStop(0, rgbStr(c1)); g.addColorStop(1, rgbStr(c2)); ctx.fillStyle = g;
+  }
+  ctx.fillRect(x, y, sz, sz);
+}
+function renderMorph(ctx, fromI, toI, p, px, allowTrail){
+  const A = STATES[fromI].preset, B = STATES[toI].preset;
+  const aA = aesOf(STATES[fromI]), aB = aesOf(STATES[toI]);
+
+  const trail = STATES[toI].trail;
+  ctx.globalAlpha = (allowTrail && trail && trail.on && !clearOnce)
+    ? clamp(1 - (trail.amount / 100) * 0.96, 0.04, 1) : 1;
+  ctx.fillStyle = rgbStr(mix3(aA.bg, aB.bg, p));
+  ctx.fillRect(0, 0, CW, CH);
+  ctx.globalAlpha = 1;
+  if (allowTrail) clearOnce = false;
+
+  const td = mix(aA.td,aB.td,p), ts = mix(aA.ts,aB.ts,p), tm = mix(aA.tm,aB.tm,p), th = mix(aA.th,aB.th,p);
+  const bnd = { d:[0,td], s:[td,ts], m:[ts,tm], h:[tm,th], b:[th,256] };
+
+  for (let i = 0; i < A.layers.length; i++) {
+    const lA = A.layers[i], lB = B.layers[i];
+    const enA = lA.en !== false, enB = lB.en !== false;
+    if (!enA && !enB) continue;
+    let psA = +lA.ps||30, psB = +lB.ps||30;
+    if (!enA) psA = psB; if (!enB) psB = psA;
+    const step = mix(psA, psB, p);
+    if (step < 1.5) continue;
+    const dn = mix(enA ? (+lA.dn||100) : 0, enB ? (+lB.dn||100) : 0, p);
+    const [lo, hi] = bnd[lA.id] || [0,256];
+    const c1 = mix3(aA.layers[i].c1, aB.layers[i].c1, p);
+    const c2 = mix3(aA.layers[i].c2, aB.layers[i].c2, p);
+    const mode = p < 0.5 ? (lA.mode||'solid') : (lB.mode||'solid');
+    const half = step / 2;
+    let row = 0;
+    for (let cy = step*0.5; cy < CH + step; cy += step, row++) {
+      let col = 0;
+      for (let cx = step*0.5; cx < CW + step; cx += step, col++) {
+        if (hash01(col, row, i+1) * 100 > dn) continue;
+        const sx = clamp(~~cx,0,CW-1), sy = clamp(~~cy,0,CH-1), o = (sy*CW+sx)*4;
+        const bri = .299*px[o]+.587*px[o+1]+.114*px[o+2];
+        if (bri < lo || bri >= hi) continue;
+        const ga = hash01(col, row, i+50) * 6.2832;
+        cellFill(ctx, mode, c1, c2, bri, ga, cx-half, cy-half, step);
+      }
+    }
+  }
+}
+
 /* ══ Source sampling ══════════════════════════════════════════════ */
 function samplePixels(tSec, dt){
   const st = STATES[liveIdx];
@@ -1261,15 +1335,9 @@ function frame(ts){
   const px = samplePixels(tSec, dt);
 
   if (blending) {
-    // Cross-fade the full "from" and "to" looks → every setting tweens.
-    renderLook(ctxA, fromIdx, fromAes, px, false);
-    renderLook(ctxB, liveIdx, toAes, px, false);
-    mainCtx.globalAlpha = 1;       mainCtx.drawImage(bufA, 0, 0);
-    mainCtx.globalAlpha = blend;   mainCtx.drawImage(bufB, 0, 0);
-    mainCtx.globalAlpha = 1;
+    renderMorph(mainCtx, fromIdx, liveIdx, blend, px, false);   // cells morph from→to
   } else {
-    curAes = aesOf(STATES[liveIdx]);   // read live so panel edits reflect instantly
-    renderLook(mainCtx, liveIdx, curAes, px, true);
+    renderMorph(mainCtx, liveIdx, liveIdx, 0, px, true);        // settled look (panel edits live)
   }
 }
 requestAnimationFrame(frame);
