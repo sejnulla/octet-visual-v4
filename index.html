@@ -744,13 +744,13 @@ const STATES = [
     noise:{ speed:0.5, scale:6, detail:3, contrast:40 },
     life:{ speed:9, scale:90, decay:55, density:32 },
     pointer:{ on:true, size:26, fade:6 },
-    trail:{ on:false, amount:100 },
-    preset:{ bgc:'#f6f1ea', td:'13', ts:'75', tm:'143', th:'252', layers:[
-      L('d','forest','solid',7,100,0),
-      L('s','surface','random-gradient',32,100,0),
-      L('m','sunset','solid-brightness',5,82,0,{sg:true}),
+    trail:{ on:true, amount:100 },
+    preset:{ bgc:'#f6f1ea', td:'20', ts:'185', tm:'217', th:'241', layers:[
+      L('d','bloom','gradient-cell',4,100,0),
+      L('s','surface','gradient-cell',35,89,0),
+      L('m','sunset','solid-brightness',14,82,0,{sg:true}),
       L('h','sunset','solid-brightness',10,90,22,{en:false}),
-      L('b','bloom','random-gradient',21,21,0),
+      L('b','bloom','random-gradient',44,49,0,{en:false}),
     ]}
   },
   { // ── Third · video ──
@@ -758,13 +758,13 @@ const STATES = [
     noise:{ speed:0.4, scale:5, detail:2, contrast:55 },
     life:{ speed:9, scale:90, decay:55, density:32 },
     pointer:{ on:false, size:26, fade:6 },
-    trail:{ on:false, amount:100 },
-    preset:{ bgc:'#f6f1ea', td:'13', ts:'75', tm:'143', th:'252', layers:[
-      L('d','forest','solid',7,100,0),
-      L('s','surface','random-gradient',32,100,0),
-      L('m','sunset','solid-brightness',5,82,0,{sg:true}),
+    trail:{ on:true, amount:94 },
+    preset:{ bgc:'#f6f1ea', td:'92', ts:'255', tm:'255', th:'255', layers:[
+      L('d','bloom','solid-brightness',8,100,0),
+      L('s','surface','gradient-cell',24,89,0),
+      L('m','sunset','solid-brightness',14,82,0,{sg:true}),
       L('h','sunset','solid-brightness',10,90,22,{en:false}),
-      L('b','bloom','random-gradient',21,21,0),
+      L('b','bloom','random-gradient',44,49,0,{en:false}),
     ]}
   },
 ];
@@ -996,7 +996,8 @@ cv.addEventListener('pointerleave', () => { ptrActive = false; });
 const vids = [];
 for (let i = 0; i < 3; i++) {
   const v = document.createElement('video');
-  v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+  v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; v.preload = 'auto';
+  v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
   v.style.display = 'none';
   document.body.appendChild(v);
   vids[i] = v;
@@ -1005,6 +1006,12 @@ for (let i = 0; i < 3; i++) {
 function seedVideo(i, src){ vids[i].src = src; vids[i].play().catch(()=>{}); }
 seedVideo(1, './media/v3section2.mp4');
 seedVideo(2, './media/v3section3.mp4');
+
+/* Keep playback alive: some browsers/embeds block muted autoplay until a
+   gesture, and only the live section's video needs to actually be running. */
+function playVid(i){ const v = vids[i]; if (v && v.src && v.paused) v.play().catch(()=>{}); }
+['pointerdown','keydown','scroll','touchstart'].forEach(ev =>
+  window.addEventListener(ev, () => vids.forEach((_, i) => playVid(i)), { once:true, passive:true }));
 
 /* ══ Scatter cache (rebuilt when ps/dn/jt of a layer change) ══════ */
 const SCAT = {};
@@ -1122,6 +1129,7 @@ function goToSection(idx){
       (from === BRIDGE.toIdx   && idx === BRIDGE.fromIdx))) {
     startBridge(idx === BRIDGE.toIdx ? +1 : -1, idx);
   }
+  if (STATES[idx].source === 'video') playVid(idx);   // ensure the section's loop is running
   transitionTo(idx);   // tween the pixelation preset toward the destination in parallel
 }
 
@@ -1359,6 +1367,20 @@ function buildPanel(){
     </div>
   </div>`;
 
+  /* Fonts (global — load local font files) */
+  html += `<div class="pblock"><div class="pblock-title">Fonts — all sections</div>
+    <div class="pfield"><label>Display / headings</label>
+      <input class="file-in" type="file" accept=".ttf,.otf,.woff,.woff2" data-fontup="display">
+      <div class="vid-status" id="font-display-status">${FONTS.display ? FONTS.display.label : 'Default · JetBrains Mono'}</div></div>
+    <div class="pfield"><label>Body text</label>
+      <input class="file-in" type="file" accept=".ttf,.otf,.woff,.woff2" data-fontup="body">
+      <div class="vid-status" id="font-body-status">${FONTS.body ? FONTS.body.label : 'Default · IBM Plex Sans'}</div></div>
+    <div class="pfield"><label>Mono / labels</label>
+      <input class="file-in" type="file" accept=".ttf,.otf,.woff,.woff2" data-fontup="mono">
+      <div class="vid-status" id="font-mono-status">${FONTS.mono ? FONTS.mono.label : 'Default · IBM Plex Mono'}</div></div>
+    <button class="mini-btn" id="font-reset" style="margin-top:2px">Reset to defaults</button>
+  </div>`;
+
   /* Trail */
   html += `<div class="pblock"><div class="pblock-title">Trail</div>
     <div class="prow" style="justify-content:space-between">
@@ -1519,9 +1541,39 @@ panelBody.addEventListener('input', e => {
   }
 });
 
-/* — clicks: reseed, mode chips, layer collapse — */
+/* ══ Local fonts (global) ═════════════════════════════════════════
+   Load a font file from disk and apply it to one of the three type
+   roles by overriding its CSS variable. */
+const FONTS = { display:null, body:null, mono:null };
+const FONT_VAR = { display:'--jet', body:'--sans', mono:'--mono' };
+const FONT_FALLBACK = { display:"'JetBrains Mono', monospace", body:"'IBM Plex Sans', sans-serif", mono:"'IBM Plex Mono', monospace" };
+
+function loadLocalFont(file, role){
+  const status = document.getElementById('font-' + role + '-status');
+  if (status) status.textContent = 'Loading…';
+  const url = URL.createObjectURL(file);
+  const fam = 'local-' + role + '-' + Date.now();
+  new FontFace(fam, `url(${url})`).load().then(ff => {
+    document.fonts.add(ff);
+    FONTS[role] = { name: fam, label: file.name };
+    document.documentElement.style.setProperty(FONT_VAR[role], `'${fam}', ${FONT_FALLBACK[role]}`);
+    const s = document.getElementById('font-' + role + '-status'); if (s) s.textContent = file.name;
+  }).catch(() => {
+    const s = document.getElementById('font-' + role + '-status'); if (s) s.textContent = '⚠ failed to load';
+  });
+}
+function resetFonts(){
+  ['display','body','mono'].forEach(role => {
+    FONTS[role] = null;
+    document.documentElement.style.removeProperty(FONT_VAR[role]);
+  });
+  buildPanel();
+}
+
+/* — clicks: reseed, font reset, mode chips, layer collapse — */
 panelBody.addEventListener('click', e => {
   if (e.target.id === 'life-reseed') { lifeReseed = true; return; }
+  if (e.target.id === 'font-reset')  { resetFonts(); return; }
   const chip = e.target.closest('.chip');
   if (chip) {
     const i = chip.dataset.li, mode = chip.dataset.mode;
@@ -1536,8 +1588,10 @@ panelBody.addEventListener('click', e => {
   }
 });
 
-/* — video upload — */
+/* — video & font upload — */
 panelBody.addEventListener('change', e => {
+  const fontRole = e.target.dataset.fontup;
+  if (fontRole !== undefined) { const ff = e.target.files[0]; if (ff) loadLocalFont(ff, fontRole); return; }
   const up = e.target.dataset.vidup;
   if (up === undefined) return;
   const f = e.target.files[0];
