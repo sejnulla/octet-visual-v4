@@ -1225,8 +1225,21 @@ function samplePixels(tSec, dt){
     pixCtx.drawImage(ptrC, 0, 0);
     pixCtx.globalCompositeOperation = 'source-over';
   }
-  return pixCtx.getImageData(0, 0, CW, CH).data;
+  const px = pixCtx.getImageData(0, 0, CW, CH).data;
+
+  // Loop-seam guard: when a video wraps it can flash one near-black frame.
+  // If a video frame suddenly drops to ~black after a bright one, reuse the
+  // previous good frame so the loop point is seamless.
+  if (st.source === 'video' && !bridge.active) {
+    let sum = 0, n = 0;
+    for (let i = 0; i < px.length; i += 4 * 512) { sum += px[i] + px[i+1] + px[i+2]; n += 3; }
+    const mean = sum / n;
+    if (mean < 3 && lastMean > 20 && lastPx) return lastPx;   // black seam → hold last frame
+    lastPx = px; lastMean = mean;
+  }
+  return px;
 }
+let lastPx = null, lastMean = 0;
 
 /* ══ Render loop ══════════════════════════════════════════════════ */
 let prevSec = null;
